@@ -14,6 +14,8 @@ echo "Installing dependencies..."
 sudo apt-get update
 sudo apt-get install -y libmariadb-dev libcurl4-openssl-dev gcc make
 
+find /usr/include -name plugin.h
+
 # Compile the plugin
 echo "Compiling the MariaDB plugin..."
 gcc -fPIC -shared -o $PLUGIN_OUTPUT_FILE $PLUGIN_SOURCE_FILE -I$MARIADB_INCLUDE_PATH -L$MARIADB_LIB_PATH -lmysqlclient -lcurl
