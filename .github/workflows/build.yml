@@ -1,0 +1,33 @@
+name: Build MariaDB Plugin
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up dependencies and build plugin
+      run: |
+        ./scripts/build_plugin.sh
+
+    - name: Archive build output
+      run: |
+        mkdir -p build_output
+        mv obb-key-management-plugin.so build_output/
+        tar -czf build_output.tar.gz build_output
+
+    - name: Upload build output
+      uses: actions/upload-artifact@v3
+      with:
+        name: obb-key-management-plugin-build
+        path: build_output.tar.gz
