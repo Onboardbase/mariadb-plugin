@@ -1,5 +1,5 @@
-#include <mysql/plugin.h>
-#include <mysql/plugin_audit.h>
+#include <mariadb/mysql/plugin.h>
+#include <mariadb/mysql/plugin_audit.h>
 #include "obb_key_service.h"
 
 static char store_server_url[1024] = "https://public.onboardbase.com/api/v1/store/get";

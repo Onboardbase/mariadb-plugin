@@ -20,16 +20,16 @@ jobs:
         mysql database: 'test_db'
         mysql root password: 'root_password'
 
-    - name: Install MySQL development files
+    - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libmysqlclient-dev
+        sudo apt-get install -y libmariadb-dev libcurl4-openssl-dev
 
     - name: Build plugin
       run: |
         gcc -shared -fPIC -o obb_key_management.so mariadb_plugin.c obb_key_service.c \
         $(mysql_config --cflags) \
-        -I/usr/include/mysql -lmysqlclient
+        -I/usr/include/mysql -lmysqlclient -lcurl
 
     - name: Upload artifact
       uses: actions/upload-artifact@v2
