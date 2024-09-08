@@ -1,0 +1,7 @@
+{
+  "files.associations": {
+    "*.ejs": "html",
+    "*.json": "jsonc",
+    "obb_key_service.h": "c"
+  }
+}
