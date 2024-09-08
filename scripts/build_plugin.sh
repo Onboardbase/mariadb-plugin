@@ -12,7 +12,7 @@ MARIADB_LIB_PATH="/usr/mysql/lib"
 # Install necessary dependencies
 echo "Installing dependencies..."
 sudo apt-get update
-sudo apt-get install -y libmariadb-dev libcurl4-openssl-dev gcc make libmysqlclient-dev
+sudo apt-get install -y libcurl4-openssl-dev gcc make libmysqlclient-dev
 
 echo "Compiling the Obb Service lib..."
 gcc -c obb_key_service.c -o obb_key_service.o -lcurl
