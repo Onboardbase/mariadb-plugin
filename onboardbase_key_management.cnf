@@ -1,0 +1,42 @@
+# Copyright (C) 2019-2022 MariaDB Corporation
+#
+# This is a default configuration for the Onboardbase Store plugin.
+# You can read more about the parameters of this plugin in the
+# onboardbase_key_management.txt file.
+#
+# NOTE THAT YOU MUST MANUALLY UNCOMMENT THE "plugin-load-add"
+# LINE AND ALL THE NECESSARY PARAMETERS BELOW, SETTING THEM
+# TO APPROPRIATE VALUES!
+#
+[mariadb]
+
+#
+# To use Onboardbase Store KMS, the plugin must be preloaded and
+# activated on the server:
+#
+#plugin-load-add=onboardbase_key_management.so
+
+# Most of its parameters should not be changed during plugin
+# operation and therefore must be preconfigured as part of
+# the server configuration:
+
+#
+# HTTP[s] URL that is used to connect to the Onboardbase Store server.
+# It must include the name of the scheme ("https://" for a secure
+# connection) and, according to the API rules for storages of the
+# key-value type in Onboardbase Store, after the server address
+# "https://127.0.0.1:8200/v1/my_secrets"
+#
+#hashicorp-key-management-vault-url="<url>"
+
+#
+# Authentication token that passed to the Onboardbase Store
+# in the request header:
+#
+#hashicorp-key-management-token="<token>"
+
+
+#
+# Number of server request retries in case of timeout:
+#
+#hashicorp-key-management-retries=3
