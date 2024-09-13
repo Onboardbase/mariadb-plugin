@@ -103,7 +103,6 @@ static OBData data;
 
 static char* vault_url;
 static char* token;
-static char* vault_ca;
 static int timeout;
 static int max_retries;
 
@@ -216,9 +215,6 @@ int OBData::curl_run (const char *url, std::string *response,
           CURLE_OK ||
       (curl_res= curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L)) !=
           CURLE_OK ||
-      (strlen(vault_ca) != 0 &&
-       (curl_res= curl_easy_setopt(curl, CURLOPT_CAINFO, vault_ca)) !=
-           CURLE_OK) ||
       (curl_res= curl_easy_setopt(curl, CURLOPT_USE_SSL, CURLUSESSL_ALL)) !=
           CURLE_OK ||
       (curl_res= curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L)) !=
@@ -271,117 +267,60 @@ int OBData::curl_run (const char *url, std::string *response,
   return is_error ? OPERATION_ERROR : OPERATION_OK;
 }
 
-static inline int c2xdigit (int c)
-{
-  if (c > 9)
-  {
-    c -= 'A' - '0' - 10;
-    if (c > 15)
-    {
-      c -= 'a' - 'A';
-    }
-  }
-  return c;
-}
-
-static int hex2buf (unsigned int max_length, unsigned char *dstbuf,
-                    int key_len, const char *key)
-{
-  int length = 0;
-  while (key_len >= 2)
-  {
-    int c1 = key[0];
-    int c2 = key[1];
-    if (! isxdigit(c1) || ! isxdigit(c2))
-    {
-      break;
-    }
-    if (max_length)
-    {
-      c1 = c2xdigit(c1 - '0');
-      c2 = c2xdigit(c2 - '0');
-      dstbuf[length++] = (c1 << 4) + c2;
-    }
-    key += 2;
-    key_len -= 2;
-  }
-  if (key_len)
-  {
-    if (key_len != 1)
-    {
-      my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
-                      "Syntax error - the key data should contain only "
-                      "hexadecimal digits",
-                      0);
-    }
-    else
-    {
-      my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
-                      "Syntax error - extra character in the key data",
-                      0);
-    }
-    return -1;
-  }
-  return 0;
-}
-
-static int get_data (const std::string &response_str,
+static int get_data(const std::string &response_str,
                      const char **js, int *js_len,
                      unsigned int key_id)
 {
-  const char *response = response_str.c_str();
-  size_t response_len = response_str.size();
-  /*
-    If the key is not found, this is not considered a fatal error,
-    but we need to add an informational message to the log:
-  */
-  if (response_len == 0)
-  {
-    if (key_version == ENCRYPTION_KEY_VERSION_INVALID)
+    // Extract the "data" object from the response
+    std::string data_value = extract_value(response_str, "data");
+    if (data_value.empty())
     {
-      my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
-                      "Key not found (key id: %u)",
-                      ME_ERROR_LOG_ONLY | ME_NOTE, key_id);
+        my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
+                        "Unable to get data object (http response is: %s)",
+                        0, response_str.c_str());
+        return 2;
     }
-    else
-    {
-      my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
-                      "Key not found (key id: %u, key version: %u)",
-                      ME_ERROR_LOG_ONLY | ME_NOTE, key_id, key_version);
-    }
-    return 1;
-  }
-  if (json_get_object_key(response, response + response_len, "data",
-                          js, js_len) != JSV_OBJECT)
-  {
-    my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
-                    "Unable to get data object (http response is: %s)",
-                    0, response);
-    return 2;
-  }
-  return 0;
+
+    *js = data_value.c_str();
+    *js_len = data_value.length();
+    return 0;
 }
 
-static int get_key_data (const char *js, int js_len,
+static int get_key_data(const char *js, int js_len,
                          const char **key, int *key_len,
                          const std::string &response_str)
 {
-  if (json_get_object_key(js, js + js_len, "data", 
-                          &js, &js_len) != JSV_OBJECT) 
-  {
-    // ... (error handling remains the same)
-  }
+    // Extract the "value" field from the "data" object
+    std::string value = extract_value(std::string(js, js_len), "value");
+    if (value.empty())
+    {
+        my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
+                        "Unable to get value string (http response is: %s)",
+                        0, response_str.c_str());
+        return 1;
+    }
 
-  // Extract the "value" field instead of "data"
-  if (json_get_object_key(js, js + js_len, "value",
-                          key, key_len) != JSV_STRING)
-  {
-    my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
-                    "Unable to get value string (http response is: %s)",
-                    0, response_str.c_str());
-    return 1;
-  }
-  return 0;
+    *key = value.c_str();
+    *key_len = value.length();
+    return 0;
+}
+
+// Function to extract value from JSON-like string
+std::string extract_value(const std::string &json_str, const std::string &key)
+{
+    std::string search_key = "\"" + key + "\":\"";
+    size_t start = json_str.find(search_key);
+    if (start == std::string::npos)
+    {
+        return ""; // Key not found
+    }
+    start += search_key.length();
+    size_t end = json_str.find("\"", start);
+    if (end == std::string::npos)
+    {
+        return ""; // Malformed JSON
+    }
+    return json_str.substr(start, end - start);
 }
 
 unsigned int OBData::get_key_from_vault (unsigned int key_id,
@@ -410,13 +349,20 @@ unsigned int OBData::get_key_from_vault (unsigned int key_id,
     return ENCRYPTION_KEY_VERSION_INVALID;
   }
 
-  // ... (Rest of the JSON parsing and key retrieval logic remains the same, using get_key_data to extract the "value") 
+  const char *key;
+  int key_len;
+  if (get_key_data(js, js_len, &key, &key_len, response_str))
+  {
+    return ENCRYPTION_KEY_VERSION_INVALID;
+  }
 
-  return 0; 
+  memcpy(dstbuf, key, key_len);
+  *buflen = key_len;
+  return 0;
 }
 
 
-static unsigned int get_key_from_vault (unsigned int key_id,
+static unsigned int get_key_from_vault(unsigned int key_id,
                                         unsigned char *dstbuf,
                                         unsigned int *buflen)
 {
