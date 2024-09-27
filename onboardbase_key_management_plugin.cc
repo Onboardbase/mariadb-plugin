@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <unordered_map>
 #include <mutex>
+#include <stack>
 
 #define PLUGIN_ERROR_HEADER "onboardbase: "
 #define MAX_RESPONSE_SIZE 131072
@@ -249,18 +250,80 @@ int OBData::curl_run (const char *url, std::string *response) const
 
 
 std::string OBData::extract_value(const std::string &json_str, const std::string &key) {
-    std::string search_key = "\"" + key + "\":\"";
+    // Search for the outer key in the JSON string
+    std::string search_key = "\"" + key + "\":";
     size_t start = json_str.find(search_key);
-    if (start == std::string::npos) return "";
+    if (start == std::string::npos) return "";  // Key not found
+
     start += search_key.length();
-    size_t end = json_str.find("\"", start);
-    if (end == std::string::npos) return "";
+
+    // Handle nested object values, e.g., "key": { "inner_key": "value" }
+    if (json_str[start] == '{') {
+        // Use a stack to match nested brackets and extract the full object value
+        std::stack<char> bracket_stack;
+        size_t obj_start = start;
+        bracket_stack.push('{');
+        ++start;
+
+        // Traverse the JSON to find the matching closing bracket
+        while (!bracket_stack.empty() && start < json_str.length()) {
+            if (json_str[start] == '{') {
+                bracket_stack.push('{');
+            } else if (json_str[start] == '}') {
+                bracket_stack.pop();
+            }
+            ++start;
+        }
+
+        // Return the nested JSON object as a string
+        return json_str.substr(obj_start, start - obj_start);
+    }
+    
+    // Otherwise, handle primitive values, e.g., "key": "value" or "key": number
+    // Skip any spaces or quotes
+    while (json_str[start] == ' ' || json_str[start] == '\"') ++start;
+
+    size_t end = start;
+
+    // Handle string values enclosed in quotes
+    if (json_str[start] == '\"') {
+        ++start;
+        end = json_str.find("\"", start);
+        if (end == std::string::npos) return "";  // Unterminated string value
+    } else {
+        // Handle non-string values (numbers, booleans, etc.)
+        while (end < json_str.length() && json_str[end] != ',' && json_str[end] != '}' && json_str[end] != ' ') ++end;
+    }
+
     return json_str.substr(start, end - start);
 }
 
 unsigned int OBData::get_latest_version()
 {
-  return 1;
+  std::string url = std::string(vault_url_data);
+    std::string response;
+    
+    if (curl_run(url.c_str(), &response) != OPERATION_OK) {
+        my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
+                        "Unable to get key data", 0);
+        return ENCRYPTION_KEY_VERSION_INVALID;
+    }
+
+    std::string data_value = extract_value(response, "data");
+    if (data_value.empty() || data_value == "null") {
+        my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
+                        "Unable to get data object (http response is: %s)", 0, response.c_str());
+        return ENCRYPTION_KEY_VERSION_INVALID;
+    }
+
+    std::string key_value = extract_value(data_value, "value");
+    if (key_value.empty() || key_value == "null") {
+        my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
+                        "Unable to get value string (http response is: %s)", 0, response.c_str());
+        return ENCRYPTION_KEY_VERSION_INVALID;
+    }
+
+    return 0;
 }
 
 
@@ -276,14 +339,14 @@ unsigned int OBData::get_key_from_vault(unsigned int version, unsigned int key_i
     }
 
     std::string data_value = extract_value(response, "data");
-    if (data_value.empty()) {
+    if (data_value.empty() || data_value == "null") {
         my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
                         "Unable to get data object (http response is: %s)", 0, response.c_str());
         return ENCRYPTION_KEY_VERSION_INVALID;
     }
 
     std::string key_value = extract_value(data_value, "value");
-    if (key_value.empty()) {
+    if (key_value.empty() || key_value == "null") {
         my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
                         "Unable to get value string (http response is: %s)", 0, response.c_str());
         return ENCRYPTION_KEY_VERSION_INVALID;
