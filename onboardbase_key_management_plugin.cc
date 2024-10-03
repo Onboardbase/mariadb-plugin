@@ -54,7 +54,7 @@ public:
      curl_inited(false)
    {}
     unsigned int get_key_from_vault(unsigned int version, unsigned int key_id, unsigned char *dstbuf, unsigned int *buflen);
-    unsigned int get_latest_version();
+    unsigned int get_latest_version(unsigned int key_id);
     int init();
     void deinit()
     {
@@ -105,6 +105,7 @@ static OBData data;
 
 static char* vault_url;
 static char* token;
+static char* locker_key;
 static int timeout;
 static int max_retries;
 
@@ -117,6 +118,11 @@ static MYSQL_SYSVAR_STR(vault_url, vault_url,
 static MYSQL_SYSVAR_STR(token, token,
     PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY | PLUGIN_VAR_NOSYSVAR,
     "Authentication token that passed to the Onboardbase Store in the request header",
+    NULL, NULL, "");
+
+static MYSQL_SYSVAR_STR(locker_key, locker_key,
+    PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+    "Locker key to specify where does the keys are stored",
     NULL, NULL, "");
 
 static MYSQL_SYSVAR_INT(timeout, timeout,
@@ -132,6 +138,7 @@ static MYSQL_SYSVAR_INT(max_retries, max_retries,
 static struct st_mysql_sys_var *settings[] = {
     MYSQL_SYSVAR(vault_url),
     MYSQL_SYSVAR(token),
+    MYSQL_SYSVAR(locker_key),
     MYSQL_SYSVAR(timeout),
     MYSQL_SYSVAR(max_retries),
     NULL
@@ -298,9 +305,13 @@ std::string OBData::extract_value(const std::string &json_str, const std::string
     return json_str.substr(start, end - start);
 }
 
-unsigned int OBData::get_latest_version()
+unsigned int OBData::get_latest_version(unsigned int key_id)
 {
-  std::string url = std::string(vault_url_data);
+    std::string url = std::string(vault_url_data);
+    if (std::string(locker_key).length() != 0) {
+        url += "/" + std::to_string(key_id);
+        url += "?lockerKey=" + std::string(locker_key);
+    }
     std::string response;
     
     if (curl_run(url.c_str(), &response) != OPERATION_OK) {
@@ -312,7 +323,9 @@ unsigned int OBData::get_latest_version()
     std::string data_value = extract_value(response, "data");
     if (data_value.empty() || data_value == "null") {
         my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
-                        "Unable to get data object (http response is: %s)", 0, response.c_str());
+                        "LAST: Unable to get data object (http response is: %s)", 0, response.c_str());
+        my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
+                        "LAST: Unable to get data object (url is: %s)", 0, url.c_str());
         return ENCRYPTION_KEY_VERSION_INVALID;
     }
 
@@ -330,6 +343,10 @@ unsigned int OBData::get_latest_version()
 unsigned int OBData::get_key_from_vault(unsigned int version, unsigned int key_id, unsigned char *dstbuf, unsigned int *buflen) {
 
     std::string url = std::string(vault_url_data);
+    if (std::string(locker_key).length() != 0) {
+        url += "/" + std::to_string(key_id);
+        url += "?lockerKey=" + std::string(locker_key);
+    }
     std::string response;
     
     if (curl_run(url.c_str(), &response) != OPERATION_OK) {
@@ -342,6 +359,8 @@ unsigned int OBData::get_key_from_vault(unsigned int version, unsigned int key_i
     if (data_value.empty() || data_value == "null") {
         my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
                         "Unable to get data object (http response is: %s)", 0, response.c_str());
+        my_printf_error(ER_UNKNOWN_ERROR, PLUGIN_ERROR_HEADER
+                        "Unable to get data object (url is: %s)", 0, url.c_str());
         return ENCRYPTION_KEY_VERSION_INVALID;
     }
 
@@ -353,7 +372,7 @@ unsigned int OBData::get_key_from_vault(unsigned int version, unsigned int key_i
     }
 
     *buflen = key_value.length();
-    KEY_INFO info(1, 1, clock(), *buflen);
+    KEY_INFO info(key_id, 1, clock(), *buflen);
     memcpy(info.data, dstbuf, *buflen);
     return 0;
 }
@@ -365,7 +384,7 @@ static unsigned int get_key_from_vault(unsigned int version, unsigned int key_id
 
 unsigned int get_latest_version(unsigned int key_id)
 {
-    return data.get_latest_version();
+    return data.get_latest_version(key_id);
 }
 
 struct st_mariadb_encryption onboardbase_key_management_plugin = {
@@ -449,10 +468,10 @@ maria_declare_plugin(onboardbase_key_management)
     PLUGIN_LICENSE_GPL,
     onboardbase_key_management_plugin_init,
     onboardbase_key_management_plugin_deinit,
-    0x0100, /* 1.0 */
+    0x0102, /* 1.2 */
     NULL,   /* status variables */
     settings,
-    "1.0",
+    "1.2",
     MariaDB_PLUGIN_MATURITY_STABLE
 }
 maria_declare_plugin_end;
